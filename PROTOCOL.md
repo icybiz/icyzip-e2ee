@@ -85,16 +85,18 @@ The recipient reconstructs the same additional data. Any change to encrypted byt
 
 The file offer and control commands stay outside this encryption. The relay and peer see the transfer id, sanitized filename, MIME hint, plaintext size, encrypted wire size, chunk size, encryption-mode marker, timing, accept/reject/cancel state, acknowledgements, and completion counts. Those offer fields are not covered by an end-to-end MAC in this version.
 
-The current sender appends `e2ee-v1` to every offer. The receiver also accepts the older five-field offer that omits encrypted wire size and the encryption marker. For such an offer it sets `encrypted=false` and passes each binary frame directly to the file assembler without AES-GCM verification. Because the marker and size fields are unauthenticated, an active relay can downgrade the receiver to this legacy branch and supply arbitrary plaintext file bytes.
+The sender appends encrypted wire size and the exact marker `e2ee-v1` to every offer. Before accepting, the receiver requires that marker and an established ECDH content key. It also requires positive safe-integer plaintext size, encrypted chunk size, and wire size; enforces the configured size limits; requires the encrypted chunk size to exceed the 28-byte nonce/tag overhead; and requires wire size to exceed plaintext size. An older five-field offer, a changed marker, or an offer received before key establishment is rejected with `encryption-required`. There is no plaintext receive branch.
+
+The marker and visible size fields are still not authenticated end to end. An active relay can change them and cause rejection or denial of service. It cannot make the current receiver accept plaintext file frames: every accepted frame is passed through AES-GCM with the pair, transfer, and sequence context before any bytes enter the file assembler.
 
 ## Failure behavior
 
 - Invalid public-key encoding or an invalid curve point stops key establishment.
 - Text cannot be sent until a shared value exists.
 - Invalid JSON, algorithm/version, nonce length, ciphertext, GCM tag, or key rejects the text update; the application keeps the last valid text and shows a key-mismatch state.
-- With an `e2ee-v1` offer, invalid file frames or GCM verification cancel the transfer instead of accepting partial plaintext.
-- A legacy offer without `e2ee-v1` enters the unauthenticated plaintext receive branch described above.
-- Text has no plaintext fallback. File receive retains the legacy branch documented above.
+- An offer without exact `e2ee-v1` or without an established ECDH key is rejected before transfer state is created.
+- Invalid offer sizes are rejected. Invalid file frames, changed file context, or failed GCM verification cancel an accepted transfer instead of creating a partial download.
+- Neither text nor file receive has a plaintext fallback.
 
 ## Relay role relevant to E2EE
 

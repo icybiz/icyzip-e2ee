@@ -770,26 +770,26 @@ function arrayBufferCopy(data)
         const size = Number(args[2]);
         const mime = args[3] || "application/octet-stream";
         const chunkSize = Number(args[4]);
-        const wireSize = Number(args[5] || args[2]);
-        const encrypted = args[6] === "e2ee-v1";
-        clearDownload();
+        const wireSize = Number(args[5]);
         if (state.outgoing || state.incoming)
         {
             sendCommand("fileReject", [transferId, "busy"]);
             return;
         }
-        if (!transferId || !Number.isFinite(size) || size <= 0 || size > fileMaxBytes
-            || !Number.isFinite(chunkSize) || chunkSize <= 0 || chunkSize > fileChunkBytes
-            || !Number.isFinite(wireSize) || wireSize < size)
+        if (args[6] !== "e2ee-v1" || !textE2eeReady())
+        {
+            sendCommand("fileReject", [transferId, "encryption-required"]);
+            setFileStatus("file.encryptionRequired");
+            return;
+        }
+        if (!transferId || !Number.isSafeInteger(size) || size <= 0 || size > fileMaxBytes
+            || !Number.isSafeInteger(chunkSize) || chunkSize <= FILE_E2EE_FRAME_OVERHEAD || chunkSize > fileChunkBytes
+            || !Number.isSafeInteger(wireSize) || wireSize <= size)
         {
             sendCommand("fileReject", [transferId, "invalid"]);
             return;
         }
-        if (encrypted && (wireSize <= size || chunkSize <= FILE_E2EE_FRAME_OVERHEAD))
-        {
-            sendCommand("fileReject", [transferId, "invalid"]);
-            return;
-        }
+        clearDownload();
         state.incoming = {
             id: transferId,
             name,
@@ -797,7 +797,6 @@ function arrayBufferCopy(data)
             wireSize,
             mime,
             chunkSize,
-            encrypted,
             expectedSeq: 0,
             receivedBytes: 0,
             receivedPlainBytes: 0,
@@ -846,10 +845,7 @@ function arrayBufferCopy(data)
             return;
         }
         const pending = transfer.pending;
-        const decryptPromise = transfer.encrypted
-            ? decryptFileChunk(data, transfer.id, pending.seq)
-            : Promise.resolve(arrayBufferCopy(data));
-        decryptPromise.then(function (plain)
+        decryptFileChunk(data, transfer.id, pending.seq).then(function (plain)
         {
             const current = state.incoming;
             if (!current || current.id !== transfer.id || current.pending !== pending)

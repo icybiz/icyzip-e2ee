@@ -11,6 +11,8 @@ export function endpoint({ id = "synthetic-review-pair", role = "primary", saved
     const sent = [];
     const ui = [];
     const received = [];
+    const cancelled = [];
+    let download = null;
     const sandbox = {
         window: { crypto: webcrypto, TextEncoder, TextDecoder },
         TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, URL, Blob,
@@ -26,11 +28,17 @@ export function endpoint({ id = "synthetic-review-pair", role = "primary", saved
         fileChunkBytes: 65536,
         controlsAvailable: () => true,
         safeDownloadName: () => "synthetic.bin",
-        clearDownload() {},
+        clearDownload() { download = null; },
         setFileProgress() {},
-        setFileStatus() {},
-        cancelActiveTransfer() { throw new Error("Synthetic file transfer rejected"); },
-        showDownload(name, blob) { received.push({ name, blob }); },
+        setFileStatus(status) { ui.push({ fileStatus: status }); },
+        // Model the application's cleanup callback; rejection decisions and
+        // all decryption remain in the verbatim source sections.
+        cancelActiveTransfer(notifyPeer, status) {
+            cancelled.push({ notifyPeer, status });
+            sandbox.state.incoming = null;
+            sandbox.state.outgoing = null;
+        },
+        showDownload(name, blob) { download = { name, blob }; received.push(download); },
         location: { hash: "", pathname: "/", search: "", href: "https://icyzip.com/" },
         document: { title: "test" },
         history: { replaceState() {} },
@@ -47,7 +55,8 @@ export function endpoint({ id = "synthetic-review-pair", role = "primary", saved
     const context = vm.createContext(sandbox);
     vm.runInContext(snapshot, context, { filename: "src/snapshot.js" });
     return {
-        saved, sent, ui, received,
+        saved, sent, ui, received, cancelled,
+        get download() { return download; },
         async publicKey() { return (await context.ensureTextE2eeKeyPair(id)).publicKey; },
         receive: key => context.receiveTextE2eePublic(key),
         sendPublic: () => context.sendTextE2eePublic(),

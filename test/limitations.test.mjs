@@ -33,20 +33,3 @@ test("KNOWN LIMITATION: revision and origin can change without invalidating the 
     assert.equal(accepted.updatedAt, Number.MAX_SAFE_INTEGER);
     assert.equal(accepted.origin, "relay-controlled-origin");
 });
-
-test("KNOWN LIMITATION: a legacy file offer bypasses cryptographic verification entirely", async () => {
-    const receiver = endpoint();
-    assert.equal(receiver.ready(), false);
-    const plain = new Uint8Array([0, 17, 255, 3, 128]);
-    receiver.offer(["synthetic-legacy-transfer", "synthetic.bin", String(plain.length), "application/octet-stream", "65536"]);
-    assert.equal(receiver.sent.at(-1).cmd, "fileAccept");
-    receiver.chunk(["synthetic-legacy-transfer", "0", String(plain.length)]);
-    receiver.binary(plain);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(receiver.sent.at(-1).cmd, "fileChunkAck");
-    receiver.done(["synthetic-legacy-transfer", "1", String(plain.length)]);
-    assert.equal(receiver.sent.at(-1).cmd, "fileReceived");
-    assert.equal(receiver.received.length, 1);
-    assert.deepEqual(new Uint8Array(await receiver.received[0].blob.arrayBuffer()), plain);
-    assert.equal(receiver.ready(), false);
-});

@@ -18,6 +18,8 @@ Please do not test with another person's data, pairing, browser, or account. The
 
 ## Current scope
 
-The current browser encryption snapshot and protocol documents are supported for review. The unauthenticated ECDH public-key exchange, unauthenticated text revision/origin fields, and legacy file-offer downgrade are already documented in `THREAT-MODEL.md` and reproduced in `test/limitations.test.mjs`. Reports that refine their impact, find additional attack paths, or propose a compatible repair remain useful.
+The current browser encryption snapshot and protocol documents are supported for review. The unauthenticated ECDH public-key exchange and unauthenticated text revision/origin fields are documented in `THREAT-MODEL.md` and reproduced in `test/limitations.test.mjs`. Reports that refine their impact, find additional attack paths, or propose a compatible repair remain useful.
+
+The legacy file-offer downgrade disclosed by snapshot 0.1 is repaired in snapshot 0.2 and retained as an expected-rejection regression in `test/file-receive.test.mjs`. Reports showing a bypass of the exact-marker, established-key, or AES-GCM receive requirements are in scope.
 
 The proprietary relay implementation and unrelated IcyZip web features are outside this repository, but a finding is in scope when relay behavior breaks or bypasses a property claimed by this E2EE snapshot.

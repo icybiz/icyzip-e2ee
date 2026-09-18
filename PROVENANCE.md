@@ -25,3 +25,5 @@ npm run check:live
 A successful live check proves that the nine cryptographic and file-acceptance sections match this snapshot at the time of the request. It does not prove that unrelated JavaScript matches, that every visitor received the same response, that the server cannot later serve different code, or that the protocol withstands the known attacks in `THREAT-MODEL.md`.
 
 The test adapter supplies application globals such as pair id, tab storage, and UI callbacks. It implements no cryptographic primitive or key derivation. An additional test independently decrypts the emitted text and file formats through Node's separate ECDH, HKDF, and AES-GCM interfaces.
+
+Snapshot 0.2 was generated from product release `4b477092b5d0162e36bfe157794c315a0b476de2`. The full source SHA-256 in `PROVENANCE.json` also matches the browser asset served from `https://icyzip.com/js/view/client_wsscript.js` at publication verification time.

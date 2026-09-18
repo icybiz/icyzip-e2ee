@@ -2,13 +2,14 @@
 
 This repository makes the cryptographic parts of the current IcyZip browser client inspectable and reproducible. It contains exact excerpts from the JavaScript served by [icyzip.com](https://icyzip.com), a small adapter for isolated tests, the wire format, and an explicit threat model. The relay server implementation is outside this repository because encryption and decryption happen in the two browsers; every relay behavior that affects the cryptographic claim is described here.
 
-The current design has three confirmed limitations:
+The current design has two confirmed limitations:
 
 1. The relay forwards P-256 ECDH public keys without end-to-end authentication. An active or compromised relay can substitute keys, form one encrypted connection with each browser, and read or alter transferred content without a key-mismatch error.
 2. Text revision and origin fields are outside AES-GCM. A relay cannot change the encrypted text without detection, but it can change those fields and influence conflict resolution.
-3. The sender marks current file offers as encrypted, but the receiver still accepts a legacy offer without that marker and then treats incoming file bytes as plaintext. An active relay can remove the encryption marker and substitute arbitrary plaintext bytes.
 
-The tests under `test/limitations.test.mjs` reproduce all three behaviors with synthetic endpoints. They are disclosure tests: a passing result confirms that the documented limitation is present. Do not interpret it as resistance to those attacks.
+The tests under `test/limitations.test.mjs` reproduce both behaviors with synthetic endpoints. They are disclosure tests: a passing result confirms that the documented limitation is present. Do not interpret it as resistance to those attacks.
+
+Snapshot 0.2 closes the legacy file-offer downgrade disclosed by snapshot 0.1. The receiver now requires the exact `e2ee-v1` marker and an established ECDH content key before accepting an offer. `test/file-receive.test.mjs` keeps the old attack as a regression test and verifies encrypted recovery after rejection.
 
 ## What the current client does
 
@@ -19,8 +20,9 @@ The tests under `test/limitations.test.mjs` reproduce all three behaviors with s
 - Derives separate AES-256-GCM keys for text (`icyzip/text/ecdh/v2`) and file bytes (`icyzip/file/ecdh/v1`).
 - Encrypts text with a fresh random 96-bit nonce.
 - Encrypts each file chunk with a fresh random 96-bit nonce and authenticates pairing id, transfer id, and sequence as additional data.
-- Rejects malformed ciphertext, an incorrect key, or changed encrypted bytes when the received file offer retains the current `e2ee-v1` marker.
-- Retains a legacy unencrypted file-receive branch, as demonstrated by the third known-limitation test.
+- Accepts a file offer only when it carries the exact `e2ee-v1` marker and an ECDH content key is established.
+- Rejects malformed offers, plaintext frames, incorrect keys, changed ciphertext, and changed file transfer or sequence context without creating a download.
+- Has no plaintext file-receive branch.
 
 The pairing URL contains a relay-visible pair id and no cryptographic secret. Filename, MIME hint, plaintext and ciphertext sizes, connection data, timing, and transfer-control messages remain visible to the service. See [PROTOCOL.md](PROTOCOL.md) and [THREAT-MODEL.md](THREAT-MODEL.md) for the exact boundaries.
 
@@ -33,7 +35,7 @@ npm test
 npm run known-limitations
 ```
 
-`npm test` checks legitimate text and file exchange, independent ECDH/HKDF/AES-GCM interoperability, tamper rejection, key separation, reload recovery, random nonces, and snapshot provenance.
+`npm test` checks legitimate text and file exchange, independent ECDH/HKDF/AES-GCM interoperability, tamper rejection, downgrade rejection and recovery, key separation, reload recovery, random nonces, and snapshot provenance.
 
 When this repository is checked out inside the IcyZip source tree, compare the snapshot with the local browser client:
 
@@ -56,7 +58,8 @@ The remote check permits only `https://icyzip.com/js/view/client_wsscript.js`, f
 - `tools/snapshot.mjs`: deterministic extractor and verifier.
 - `test/endpoint.mjs`: test-only application-state adapter; it implements no cryptography.
 - `test/crypto.test.mjs`: successful operation, negative ciphertext cases, and an independent Node crypto oracle.
-- `test/limitations.test.mjs`: executable disclosure of the three known protocol limitations.
+- `test/file-receive.test.mjs`: downgrade, malformed-offer, tamper, retry, and forward-progress regression tests.
+- `test/limitations.test.mjs`: executable disclosure of the two remaining protocol limitations.
 
 This snapshot is review material for the deployed IcyZip protocol, not a general-purpose cryptography library. Please report security findings privately as described in [SECURITY.md](SECURITY.md).
 

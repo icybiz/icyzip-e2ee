@@ -13,7 +13,7 @@ Assuming both browsers run the published client code, receive the intended peer 
 - modified ciphertext, an incorrect key, or changed file transfer/sequence context fails authentication;
 - text and file keys are separated by different HKDF contexts;
 - the relay does not receive the browser's ECDH private keys or derived AES keys during ordinary operation;
-- text never falls back to plaintext, and a current encrypted file offer is verified as described in `PROTOCOL.md`.
+- text never falls back to plaintext, and file receive requires exact `e2ee-v1`, an established ECDH content key, and successful AES-GCM verification as described in `PROTOCOL.md`.
 
 These properties are exercised by `npm test`, including an independent implementation based on Node's ECDH, HKDF, and AES-GCM APIs.
 
@@ -33,9 +33,13 @@ Text revision `t` and origin `o` are outside AES-GCM. A relay can change them wh
 
 Filename, MIME hint, plaintext size, encrypted size, transfer and chunk identifiers, chunk size, timing, and control state remain visible. File chunk bytes and their pair/transfer/sequence association are authenticated, but the complete visible file offer is not covered by an end-to-end authenticator.
 
+## Resolved in snapshot 0.2
+
 ### Legacy file-offer downgrade
 
-The receiver accepts an older offer without the current `e2ee-v1` marker. It then treats incoming binary frames as plaintext. Because the relay can change the unauthenticated offer and frames, it can bypass file-byte GCM verification and supply arbitrary plaintext content to the receiving browser. The third known-limitation test reproduces the entire offer, chunk, and completion flow without establishing any cryptographic key.
+Snapshot 0.1 accepted an older offer without `e2ee-v1` and then treated binary frames as plaintext. Snapshot 0.2 removes that branch. The receiver rejects a missing or changed marker and rejects even an exact marker until an ECDH content key is established. The old attack is now an expected-rejection regression in `test/file-receive.test.mjs`, together with plaintext injection, ciphertext/context tampering, encrypted retry, bidirectional exact bytes, and later text progress.
+
+This repair does not authenticate the visible offer fields and does not repair public-key substitution. An active relay can still cause denial of service by changing an offer, and can still read or replace content by first substituting ECDH public keys as described above.
 
 ## Other boundaries
 
@@ -61,4 +65,4 @@ The relay can delay, drop, reorder, reject, disconnect, replace a peer, or refus
 
 ## Current claim boundary
 
-The implementation provides browser-side text encryption and current-sender file encryption against passive observation and an honest relay that forwards the intended public keys and preserves the file encryption marker. It does not currently provide authenticated peer key agreement or downgrade-resistant file receipt against an active or compromised relay. Security reports and proposals to close those gaps are welcome through the private route in `SECURITY.md`.
+The implementation provides browser-side text and file-byte encryption against passive observation and an honest relay that forwards the intended public keys. File receipt fails closed when the encryption marker, content key, ciphertext, or file context is invalid. The protocol does not currently provide authenticated peer key agreement or end-to-end authentication of text conflict metadata and visible file-offer metadata. Security reports and proposals to close those gaps are welcome through the private route in `SECURITY.md`.
