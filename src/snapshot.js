@@ -3,308 +3,57 @@
 // These functions require application state or the supplied test adapter.
 // See THREAT-MODEL.md before relying on this protocol.
 
-// BEGIN exact source section: constants
-const TEXT_E2EE_STORAGE_PREFIX = "icyzip.textE2ee.v1:";
-const TEXT_E2EE_KEYPAIR_STORAGE_PREFIX = "icyzip.textE2ee.ecdh.v2:";
-const TEXT_E2EE_SECRET_BYTES = 32;
-const TEXT_E2EE_PUBLIC_BYTES = 65;
-const TEXT_E2EE_PUBLIC_COORD_BYTES = 32;
-const TEXT_E2EE_NONCE_BYTES = 12;
-const TEXT_E2EE_INFO = "icyzip/text/ecdh/v2";
-const TEXT_E2EE_CURVE = "P-256";
-const FILE_E2EE_INFO = "icyzip/file/ecdh/v1";
-const FILE_E2EE_NONCE_BYTES = 12;
-const FILE_E2EE_TAG_BYTES = 16;
-const FILE_E2EE_FRAME_OVERHEAD = FILE_E2EE_NONCE_BYTES + FILE_E2EE_TAG_BYTES;
-// END exact source section: constants
-
-// BEGIN exact source section: revision
-const TEXT_REVISION_BASE = 4503599627370496;
-// END exact source section: revision
-
-// BEGIN exact source section: state
-let textE2eeSecret = null;
-let textE2eeKeyPairId = "";
-let textE2eeKeyPromise = null;
-let textE2eeEcdhPairId = "";
-let textE2eeEcdhPairPromise = null;
-let textE2eePeerPublic = "";
-let textE2eeReadyCallbacks = [];
-let fileE2eeKeyPairId = "";
-let fileE2eeKeyPromise = null;
-// END exact source section: state
-
-// BEGIN exact source section: revision-validation
-function normalizedTextUpdatedAt(value)
-{
-    const result = Number(value);
-    return Number.isSafeInteger(result) && result > 0 ? result : 0;
-}
-
-// END exact source section: revision-validation
-
-// BEGIN exact source section: cryptography-and-lifecycle
-function bytesToBase64Url(bytes)
-{
-    let binary = "";
-    for (let index = 0; index < bytes.length; index += 1)
-    {
-        binary += String.fromCharCode(bytes[index]);
-    }
-    let encoded = btoa(binary).split("+").join("-").split("/").join("_");
-    while (encoded.endsWith("="))
-    {
-        encoded = encoded.slice(0, -1);
-    }
-    return encoded;
-}
-
-function base64UrlToBytes(value)
-{
-    const raw = String(value || "");
-    if (!raw)
-    {
-        return null;
-    }
-    for (let index = 0; index < raw.length; index += 1)
-    {
-        const code = raw.charCodeAt(index);
-        const isDigit = code >= 48 && code <= 57;
-        const isUpper = code >= 65 && code <= 90;
-        const isLower = code >= 97 && code <= 122;
-        if (!isDigit && !isUpper && !isLower && raw[index] !== "-" && raw[index] !== "_")
-        {
-            return null;
-        }
-    }
-    let encoded = raw.split("-").join("+").split("_").join("/");
-    while (encoded.length % 4 !== 0)
-    {
-        encoded += "=";
-    }
-    try
-    {
-        const binary = atob(encoded);
-        const bytes = new Uint8Array(binary.length);
-        for (let index = 0; index < binary.length; index += 1)
-        {
-            bytes[index] = binary.charCodeAt(index);
-        }
-        return bytes;
-    }
-    catch (error)
-    {
-        return null;
-    }
-}
-
+// BEGIN exact source section: module-integration
 function textE2eeSupported()
 {
-    return !!(window.crypto && window.crypto.subtle && window.crypto.getRandomValues && window.TextEncoder && window.TextDecoder);
+    return !!(window.IcyZipE2EE && window.crypto && window.crypto.subtle
+        && window.crypto.getRandomValues && window.TextEncoder && window.TextDecoder);
 }
 
-function textE2eeStorageKey(id)
+function readPairSecret(id)
 {
-    return TEXT_E2EE_STORAGE_PREFIX + String(id || "");
-}
-
-function textE2eeKeyPairStorageKey(id)
-{
-    return TEXT_E2EE_KEYPAIR_STORAGE_PREFIX + String(id || "");
-}
-
-function validTextE2eeSecret(secret)
-{
-    const bytes = base64UrlToBytes(secret);
-    return !!(bytes && bytes.length === TEXT_E2EE_SECRET_BYTES);
-}
-
-function validTextE2eePublicKey(publicKey)
-{
-    const bytes = base64UrlToBytes(publicKey);
-    return !!(bytes && bytes.length === TEXT_E2EE_PUBLIC_BYTES && bytes[0] === 4);
-}
-
-function textE2eePublicKeyFromPrivateJwk(privateKey)
-{
-    if (
-        !privateKey
-        || typeof privateKey !== "object"
-        || privateKey.kty !== "EC"
-        || privateKey.crv !== TEXT_E2EE_CURVE
-        || typeof privateKey.x !== "string"
-        || typeof privateKey.y !== "string"
-    )
-    {
-        return "";
-    }
-    const x = base64UrlToBytes(privateKey.x);
-    const y = base64UrlToBytes(privateKey.y);
-    if (!x || !y || x.length !== TEXT_E2EE_PUBLIC_COORD_BYTES || y.length !== TEXT_E2EE_PUBLIC_COORD_BYTES)
-    {
-        return "";
-    }
-    const bytes = new Uint8Array(TEXT_E2EE_PUBLIC_BYTES);
-    bytes[0] = 4;
-    bytes.set(x, 1);
-    bytes.set(y, 1 + TEXT_E2EE_PUBLIC_COORD_BYTES);
-    return bytesToBase64Url(bytes);
-}
-
-function validStoredTextE2eeKeyPair(record)
-{
-    return !!(
-        record
-        && typeof record === "object"
-        && record.privateKey
-        && typeof record.privateKey === "object"
-        && validTextE2eePublicKey(record.publicKey)
-        && textE2eePublicKeyFromPrivateJwk(record.privateKey) === record.publicKey
-    );
-}
-
-function removeStoredTextE2eeKeyPair(id)
-{
+    if (pairSecretId === id && window.IcyZipE2EE.validSecret(pairSecret)) return pairSecret;
     try
     {
-        sessionStorage.removeItem(textE2eeKeyPairStorageKey(id));
+        const saved = sessionStorage.getItem(window.IcyZipE2EE.SECRET_PREFIX + id);
+        return window.IcyZipE2EE.validSecret(saved) ? saved : null;
     }
-    catch (error)
-    {
-    }
+    catch (error) { return null; }
 }
 
-function readStoredTextE2eeKeyPair(id)
+function usePairSecret(id, secret)
 {
-    if (!id)
-    {
-        return null;
-    }
-    try
-    {
-        const parsed = JSON.parse(sessionStorage.getItem(textE2eeKeyPairStorageKey(id)) || "null");
-        if (validStoredTextE2eeKeyPair(parsed))
-        {
-            return {
-                privateKey: parsed.privateKey,
-                publicKey: parsed.publicKey
-            };
-        }
-    }
-    catch (error)
-    {
-    }
-    return null;
+    if (!id || !window.IcyZipE2EE.validSecret(secret)) return false;
+    if (pairSecretId !== id || pairSecret !== secret) resetTextE2eeSecret();
+    pairSecretId = id;
+    pairSecret = secret;
+    try { sessionStorage.setItem(window.IcyZipE2EE.SECRET_PREFIX + id, secret); }
+    catch (error) {}
+    return true;
 }
 
-function storeTextE2eeKeyPair(id, record)
+function ensureTextE2eeSession(id)
 {
-    if (!id || !record || !record.privateKey || !validTextE2eePublicKey(record.publicKey))
+    const secret = readPairSecret(id);
+    if (!id || !secret || !textE2eeSupported()) throw new Error("Pair key missing");
+    if (!e2eeSession || e2eeSessionId !== id)
     {
-        return;
-    }
-    try
-    {
-        sessionStorage.setItem(textE2eeKeyPairStorageKey(id), JSON.stringify(record));
-    }
-    catch (error)
-    {
-    }
-}
-
-function importTextE2eePrivateKey(privateKey)
-{
-    return window.crypto.subtle.importKey(
-        "jwk",
-        privateKey,
-        { name: "ECDH", namedCurve: TEXT_E2EE_CURVE },
-        true,
-        ["deriveBits"]
-    );
-}
-
-function loadStoredTextE2eeKeyPair(id)
-{
-    const stored = readStoredTextE2eeKeyPair(id);
-    if (!stored)
-    {
-        removeStoredTextE2eeKeyPair(id);
-        return Promise.resolve(null);
-    }
-    return importTextE2eePrivateKey(stored.privateKey).then(function (privateKey)
-    {
-        return {
-            privateKey,
-            publicKey: stored.publicKey
-        };
-    }).catch(function ()
-    {
-        removeStoredTextE2eeKeyPair(id);
-        return null;
-    });
-}
-
-function generateTextE2eeKeyPair(id)
-{
-    return window.crypto.subtle.generateKey(
-        { name: "ECDH", namedCurve: TEXT_E2EE_CURVE },
-        true,
-        ["deriveBits"]
-    ).then(function (keyPair)
-    {
-        return Promise.all([
-            window.crypto.subtle.exportKey("jwk", keyPair.privateKey),
-            window.crypto.subtle.exportKey("raw", keyPair.publicKey)
-        ]).then(function (exported)
-        {
-            const record = {
-                privateKey: exported[0],
-                publicKey: bytesToBase64Url(new Uint8Array(exported[1]))
-            };
-            storeTextE2eeKeyPair(id, record);
-            return {
-                privateKey: keyPair.privateKey,
-                publicKey: record.publicKey
-            };
+        let storage = null;
+        try { storage = sessionStorage; } catch (error) {}
+        e2eeSession = window.IcyZipE2EE.createSession({
+            pairId: id, role: isPrimaryView() ? "primary" : "secondary",
+            secret, crypto: window.crypto, storage
         });
-    });
-}
-
-function ensureTextE2eeKeyPair(id)
-{
-    if (!id || !textE2eeSupported())
-    {
-        return Promise.reject(new Error("text e2ee unsupported"));
+        e2eeSessionId = id;
     }
-    if (textE2eeEcdhPairPromise && textE2eeEcdhPairId === id)
-    {
-        return textE2eeEcdhPairPromise;
-    }
-    textE2eeEcdhPairId = id;
-    textE2eeEcdhPairPromise = loadStoredTextE2eeKeyPair(id).then(function (stored)
-    {
-        if (stored)
-        {
-            return stored;
-        }
-        return generateTextE2eeKeyPair(id);
-    });
-    return textE2eeEcdhPairPromise;
+    return e2eeSession;
 }
 
 function clearUrlFragment()
 {
-    if (!location.hash)
-    {
-        return;
-    }
-    try
-    {
-        history.replaceState(null, document.title, location.pathname + location.search);
-    }
-    catch (error)
-    {
-    }
+    if (!location.hash) return;
+    try { history.replaceState(null, document.title, location.pathname + location.search); }
+    catch (error) {}
 }
 
 function clearPairIdFromUrl()
@@ -315,98 +64,55 @@ function clearPairIdFromUrl()
         next.searchParams.delete("i");
         history.replaceState(null, document.title, next.pathname + next.search + next.hash);
     }
-    catch (error)
-    {
-    }
-}
-
-function setTextE2eeSecretForPair(id, secret)
-{
-    if (!id || !validTextE2eeSecret(secret))
-    {
-        return false;
-    }
-    const previousSecret = textE2eeSecret;
-    textE2eeSecret = secret;
-    if (textE2eeKeyPairId !== id || previousSecret !== secret)
-    {
-        textE2eeKeyPairId = "";
-        textE2eeKeyPromise = null;
-        fileE2eeKeyPairId = "";
-        fileE2eeKeyPromise = null;
-    }
-    return true;
+    catch (error) {}
 }
 
 function clearTextE2eeDerivedSecret()
 {
-    textE2eeSecret = null;
-    textE2eeKeyPairId = "";
-    textE2eeKeyPromise = null;
-    textE2eePeerPublic = "";
-    fileE2eeKeyPairId = "";
-    fileE2eeKeyPromise = null;
+    if (e2eeSession) e2eeSession.resetPeer();
 }
 
 function resetTextE2eeSecret()
 {
-    clearTextE2eeDerivedSecret();
-    textE2eeEcdhPairId = "";
-    textE2eeEcdhPairPromise = null;
+    if (e2eeSession) e2eeSession.close();
+    e2eeSession = null;
+    e2eeSessionId = "";
+    pairSecret = null;
+    pairSecretId = "";
     textE2eeReadyCallbacks = [];
 }
 
 function clearTextE2eeSecretForId(id)
 {
-    if (!id)
-    {
-        return;
-    }
+    if (!id) return;
     try
     {
-        sessionStorage.removeItem(textE2eeStorageKey(id));
-        removeStoredTextE2eeKeyPair(id);
+        for (const prefix of [window.IcyZipE2EE.SECRET_PREFIX, window.IcyZipE2EE.KEYPAIR_PREFIX,
+            "icyzip.textE2ee.v1:", "icyzip.textE2ee.ecdh.v2:"])
+            sessionStorage.removeItem(prefix + id);
     }
-    catch (error)
-    {
-    }
-    if (currentTextE2eePairId() === id || textE2eeKeyPairId === id)
-    {
-        resetTextE2eeSecret();
-    }
+    catch (error) {}
+    if (pairSecretId === id || e2eeSessionId === id) resetTextE2eeSecret();
 }
 
 function textE2eeReady()
 {
-    return !!(currentTextE2eePairId() && validTextE2eeSecret(textE2eeSecret));
+    return !!(e2eeSession && e2eeSessionId === currentTextE2eePairId() && e2eeSession.ready());
 }
 
 function onTextE2eeReady(callback)
 {
-    if (typeof callback !== "function")
-    {
-        return;
-    }
-    if (textE2eeReady())
-    {
-        callback();
-        return;
-    }
-    textE2eeReadyCallbacks.push(callback);
+    if (typeof callback !== "function") return;
+    if (textE2eeReady()) callback();
+    else textE2eeReadyCallbacks.push(callback);
 }
 
 function notifyTextE2eeReady()
 {
-    if (!textE2eeReady())
-    {
-        return;
-    }
+    if (!textE2eeReady()) return;
     const callbacks = textE2eeReadyCallbacks;
     textE2eeReadyCallbacks = [];
-    callbacks.forEach(function (callback)
-    {
-        callback();
-    });
+    callbacks.forEach(function (callback) { callback(); });
 }
 
 function currentTextE2eePairId()
@@ -416,7 +122,9 @@ function currentTextE2eePairId()
 
 function pairUrlForId(id)
 {
-    return publicBaseUrl + "/?i=" + encodeURIComponent(id);
+    const secret = id && readPairSecret(id);
+    return secret ? publicBaseUrl + "/?i=" + encodeURIComponent(id)
+        + window.IcyZipE2EE.fragmentForSecret(secret) : "";
 }
 
 function showTextE2eeFailure(state, diagnosticReason)
@@ -427,298 +135,52 @@ function showTextE2eeFailure(state, diagnosticReason)
     setUiState(state, status);
 }
 
-function receiveTextE2eePublic(peerPublic)
+async function receiveTextE2eePublic(message)
 {
-    const id = currentTextE2eePairId();
-    if (!id || !validTextE2eePublicKey(peerPublic) || !textE2eeSupported())
-    {
-        return Promise.reject(new Error("invalid text public key"));
-    }
-    if (textE2eePeerPublic === peerPublic && textE2eeReady())
-    {
-        notifyTextE2eeReady();
-        return Promise.resolve(true);
-    }
-    return ensureTextE2eeKeyPair(id).then(function (ownKeyPair)
-    {
-        const peerBytes = base64UrlToBytes(peerPublic);
-        return window.crypto.subtle.importKey(
-            "raw",
-            peerBytes,
-            { name: "ECDH", namedCurve: TEXT_E2EE_CURVE },
-            false,
-            []
-        ).then(function (peerKey)
-        {
-            return window.crypto.subtle.deriveBits(
-                { name: "ECDH", public: peerKey },
-                ownKeyPair.privateKey,
-                TEXT_E2EE_SECRET_BYTES * 8
-            );
-        });
-    }).then(function (sharedBits)
-    {
-        if (!setTextE2eeSecretForPair(id, bytesToBase64Url(new Uint8Array(sharedBits))))
-        {
-            throw new Error("invalid shared text secret");
-        }
-        textE2eePeerPublic = peerPublic;
-        notifyTextE2eeReady();
-        return true;
-    });
+    const session = ensureTextE2eeSession(currentTextE2eePairId());
+    const accepted = await session.acceptPublicMessage(message);
+    if (accepted && session === e2eeSession) notifyTextE2eeReady();
+    return accepted;
 }
 
-function sendTextE2eePublic()
+async function sendTextE2eePublic()
 {
     const id = currentTextE2eePairId();
     const targetId = isPrimaryView() ? aid : i;
-    if (!id || !targetId)
-    {
-        return Promise.resolve(false);
-    }
-    return ensureTextE2eeKeyPair(id).then(function (ownKeyPair)
-    {
-        return sendCommand("textPub", [targetId, ownKeyPair.publicKey]);
-    }).catch(function ()
-    {
-        showTextE2eeFailure("key-missing", "e2ee-unsupported");
-        return false;
-    });
-}
-
-function textE2eeKeyForPair(id)
-{
-    if (!id || !validTextE2eeSecret(textE2eeSecret) || !textE2eeSupported())
-    {
-        return Promise.reject(new Error("missing text key"));
-    }
-    if (textE2eeKeyPromise && textE2eeKeyPairId === id)
-    {
-        return textE2eeKeyPromise;
-    }
-    textE2eeKeyPairId = id;
-    const secretBytes = base64UrlToBytes(textE2eeSecret);
-    const encoder = new TextEncoder();
-    textE2eeKeyPromise = window.crypto.subtle.importKey(
-        "raw",
-        secretBytes,
-        "HKDF",
-        false,
-        ["deriveKey"]
-    ).then(function (ikm)
-    {
-        return window.crypto.subtle.deriveKey(
-            {
-                name: "HKDF",
-                hash: "SHA-256",
-                salt: encoder.encode(id),
-                info: encoder.encode(TEXT_E2EE_INFO)
-            },
-            ikm,
-            { name: "AES-GCM", length: 256 },
-            false,
-            ["encrypt", "decrypt"]
-        );
-    });
-    return textE2eeKeyPromise;
-}
-
-function encryptTextPayload(text, updatedAt, origin)
-{
-    const id = currentTextE2eePairId();
-    const textUpdatedAt = normalizedTextUpdatedAt(updatedAt) || TEXT_REVISION_BASE;
-    const textOrigin = typeof origin === "string" && origin ? origin : localTextUpdatedOrigin;
-    return textE2eeKeyForPair(id).then(function (key)
-    {
-        const nonce = new Uint8Array(TEXT_E2EE_NONCE_BYTES);
-        window.crypto.getRandomValues(nonce);
-        return window.crypto.subtle.encrypt(
-            { name: "AES-GCM", iv: nonce },
-            key,
-            new TextEncoder().encode(String(text || ""))
-        ).then(function (ciphertext)
-        {
-            return {
-                nonce,
-                ciphertext
-            };
-        });
-    }).then(function (ciphertext)
-    {
-        return JSON.stringify({
-            v: 1,
-            alg: "A256GCM",
-            n: bytesToBase64Url(ciphertext.nonce),
-            c: bytesToBase64Url(new Uint8Array(ciphertext.ciphertext)),
-            t: textUpdatedAt,
-            o: textOrigin
-        });
-    });
-}
-
-function parseEncryptedTextPayload(payload)
-{
+    if (!id || !targetId) return false;
     try
     {
-        const parsed = JSON.parse(String(payload || ""));
-        if (parsed && parsed.v === 1 && parsed.alg === "A256GCM")
-        {
-            const nonce = base64UrlToBytes(parsed.n);
-            const ciphertext = base64UrlToBytes(parsed.c);
-            if (nonce && nonce.length === TEXT_E2EE_NONCE_BYTES && ciphertext && ciphertext.length > 0)
-            {
-                return {
-                    nonce,
-                    ciphertext,
-                    updatedAt: normalizedTextUpdatedAt(parsed.t),
-                    origin: typeof parsed.o === "string" ? parsed.o : ""
-                };
-            }
-        }
+        const session = ensureTextE2eeSession(id);
+        const message = await session.publicMessage();
+        return session === e2eeSession && sendCommand("textPub", [targetId].concat(message));
     }
     catch (error)
     {
+        showTextE2eeFailure("key-missing", "e2ee-unsupported");
+        return false;
     }
-    return null;
 }
 
-function decryptTextPayload(payload)
+async function encryptTextPayload(text, updatedAt, origin)
 {
-    const id = currentTextE2eePairId();
-    const envelope = parseEncryptedTextPayload(payload);
-    if (!envelope)
-    {
-        return Promise.reject(new Error("invalid encrypted text"));
-    }
-    return textE2eeKeyForPair(id).then(function (key)
-    {
-        return window.crypto.subtle.decrypt(
-            { name: "AES-GCM", iv: envelope.nonce },
-            key,
-            envelope.ciphertext
-        );
-    }).then(function (plaintext)
-    {
-        return {
-            text: new TextDecoder().decode(plaintext),
-            updatedAt: envelope.updatedAt || TEXT_REVISION_BASE,
-            origin: envelope.origin || ""
-        };
-    });
+    const revision = normalizedTextUpdatedAt(updatedAt) || TEXT_REVISION_BASE;
+    const sender = typeof origin === "string" && origin ? origin : localTextUpdatedOrigin;
+    return ensureTextE2eeSession(currentTextE2eePairId()).encryptText(String(text || ""), revision, sender);
 }
 
-function fileE2eeKeyForPair(id)
+async function decryptTextPayload(payload)
 {
-    if (!id || !validTextE2eeSecret(textE2eeSecret) || !textE2eeSupported())
-    {
-        return Promise.reject(new Error("missing file key"));
-    }
-    if (fileE2eeKeyPromise && fileE2eeKeyPairId === id)
-    {
-        return fileE2eeKeyPromise;
-    }
-    fileE2eeKeyPairId = id;
-    const secretBytes = base64UrlToBytes(textE2eeSecret);
-    const encoder = new TextEncoder();
-    fileE2eeKeyPromise = window.crypto.subtle.importKey(
-        "raw",
-        secretBytes,
-        "HKDF",
-        false,
-        ["deriveKey"]
-    ).then(function (ikm)
-    {
-        return window.crypto.subtle.deriveKey(
-            {
-                name: "HKDF",
-                hash: "SHA-256",
-                salt: encoder.encode(id),
-                info: encoder.encode(FILE_E2EE_INFO)
-            },
-            ikm,
-            { name: "AES-GCM", length: 256 },
-            false,
-            ["encrypt", "decrypt"]
-        );
-    });
-    return fileE2eeKeyPromise;
+    return ensureTextE2eeSession(currentTextE2eePairId()).decryptText(payload);
 }
 
-function fileE2eeAdditionalData(id, transferId, seq)
+async function encryptFileChunk(buffer, transferId, seq)
 {
-    return new TextEncoder().encode([
-        "icyzip/file/chunk/v1",
-        id || "",
-        transferId || "",
-        String(seq)
-    ].join("\n"));
+    return ensureTextE2eeSession(currentTextE2eePairId()).encryptFile(arrayBufferCopy(buffer), transferId, seq);
 }
 
-function concatFileE2eeFrame(nonce, ciphertext)
+async function decryptFileChunk(buffer, transferId, seq)
 {
-    const cipherBytes = new Uint8Array(ciphertext);
-    const result = new Uint8Array(nonce.length + cipherBytes.length);
-    result.set(nonce, 0);
-    result.set(cipherBytes, nonce.length);
-    return result.buffer;
-}
-
-function splitFileE2eeFrame(data)
-{
-    const bytes = new Uint8Array(arrayBufferCopy(data));
-    if (bytes.length <= FILE_E2EE_FRAME_OVERHEAD)
-    {
-        return null;
-    }
-    return {
-        nonce: bytes.slice(0, FILE_E2EE_NONCE_BYTES),
-        ciphertext: bytes.slice(FILE_E2EE_NONCE_BYTES)
-    };
-}
-
-function encryptFileChunk(buffer, transferId, seq)
-{
-    const id = currentTextE2eePairId();
-    const plain = arrayBufferCopy(buffer);
-    return fileE2eeKeyForPair(id).then(function (key)
-    {
-        const nonce = new Uint8Array(FILE_E2EE_NONCE_BYTES);
-        window.crypto.getRandomValues(nonce);
-        return window.crypto.subtle.encrypt(
-            {
-                name: "AES-GCM",
-                iv: nonce,
-                additionalData: fileE2eeAdditionalData(id, transferId, seq)
-            },
-            key,
-            plain
-        ).then(function (ciphertext)
-        {
-            return concatFileE2eeFrame(nonce, ciphertext);
-        });
-    });
-}
-
-function decryptFileChunk(data, transferId, seq)
-{
-    const id = currentTextE2eePairId();
-    const frame = splitFileE2eeFrame(data);
-    if (!frame)
-    {
-        return Promise.reject(new Error("invalid encrypted file chunk"));
-    }
-    return fileE2eeKeyForPair(id).then(function (key)
-    {
-        return window.crypto.subtle.decrypt(
-            {
-                name: "AES-GCM",
-                iv: frame.nonce,
-                additionalData: fileE2eeAdditionalData(id, transferId, seq)
-            },
-            key,
-            frame.ciphertext
-        );
-    });
+    return ensureTextE2eeSession(currentTextE2eePairId()).decryptFile(arrayBufferCopy(buffer), transferId, seq);
 }
 
 function isPrimaryView()
@@ -726,9 +188,9 @@ function isPrimaryView()
     return i == null;
 }
 
-// END exact source section: cryptography-and-lifecycle
+// END exact source section: module-integration
 
-// BEGIN exact source section: buffer-copy
+// BEGIN exact source section: file-buffers
 function fileByteLength(data)
 {
     if (data instanceof ArrayBuffer)
@@ -755,10 +217,303 @@ function arrayBufferCopy(data)
     return new ArrayBuffer(0);
 }
 
-// END exact source section: buffer-copy
+function isBinaryMessageData(data)
+{
+    return data instanceof ArrayBuffer || ArrayBuffer.isView(data);
+}
 
-// BEGIN exact source section: file-offer-acceptance
-    function handleFileOffer(args)
+function readBlobAsArrayBuffer(blob)
+{
+    return new Promise(function (resolve, reject)
+    {
+        const reader = new FileReader();
+        reader.onload = function () { resolve(reader.result); };
+        reader.onerror = function () { reject(reader.error || new Error("file read failed")); };
+        reader.readAsArrayBuffer(blob);
+    });
+}
+
+function safeDownloadName(value)
+{
+    const name = String(value || "")
+        .replace(/[\\\/]/g, " ")
+        .replace(/[\x00-\x1f\x7f]/g, " ")
+        .trim()
+        .slice(0, 180);
+    return name || "download";
+}
+
+// END exact source section: file-buffers
+
+// BEGIN exact source section: file-controller
+function createFileTransferController()
+{
+    const input = document.getElementById("fileInput");
+    const sendButton = document.getElementById("fileActionSend");
+    const cancelButton = document.getElementById("fileActionCancel");
+    const progress = document.getElementById("fileProgress");
+    const status = document.getElementById("fileStatus");
+    const download = document.getElementById("fileReceivedDownload");
+    const state = {
+        selectedFile: null,
+        outgoing: null,
+        incoming: null,
+        pendingOffer: null,
+        receivedUrl: ""
+    };
+
+    function controlsAvailable()
+    {
+        return fileTransferRuntimeEnabled && input && sendButton && cancelButton && progress && status && download;
+    }
+
+    function setFileStatus(text)
+    {
+        if (status)
+        {
+            const key = textKey(text);
+            if (key)
+            {
+                status.dataset.i18nKey = key;
+                status.textContent = t(key);
+            }
+            else
+            {
+                delete status.dataset.i18nKey;
+                status.textContent = text || "";
+            }
+        }
+        updateFileActionButtons();
+    }
+
+    function updateFileActionButtons()
+    {
+        const available = Boolean(fileTransferRuntimeEnabled && input && sendButton && cancelButton && progress && status && download);
+        const active = Boolean(state.outgoing || state.incoming || state.pendingOffer);
+        if (sendButton)
+        {
+            sendButton.disabled = !available || active;
+            sendButton.setAttribute("aria-disabled", sendButton.disabled ? "true" : "false");
+        }
+        if (cancelButton)
+        {
+            cancelButton.disabled = !available || !active;
+            cancelButton.setAttribute("aria-disabled", cancelButton.disabled ? "true" : "false");
+        }
+    }
+
+    function setFileProgress(value, max)
+    {
+        if (!progress)
+        {
+            return;
+        }
+        progress.max = Math.max(1, Number(max) || 100);
+        progress.value = Math.max(0, Math.min(progress.max, Number(value) || 0));
+    }
+
+    function clearDownload()
+    {
+        if (state.receivedUrl)
+        {
+            URL.revokeObjectURL(state.receivedUrl);
+        }
+        state.receivedUrl = "";
+        if (download)
+        {
+            download.hidden = true;
+            download.removeAttribute("href");
+            download.removeAttribute("download");
+            download.textContent = t("action.download");
+        }
+    }
+
+    function showDownload(name, blob)
+    {
+        clearDownload();
+        state.receivedUrl = URL.createObjectURL(blob);
+        download.href = state.receivedUrl;
+        download.download = safeDownloadName(name);
+        download.textContent = t("action.download");
+        download.hidden = false;
+    }
+
+    function activeTransferId()
+    {
+        if (state.outgoing)
+        {
+            return state.outgoing.id;
+        }
+        if (state.incoming)
+        {
+            return state.incoming.id;
+        }
+        if (state.pendingOffer) return state.pendingOffer.id;
+        return "";
+    }
+
+    function clearActiveTransfer(text)
+    {
+        state.outgoing = null;
+        state.incoming = null;
+        state.pendingOffer = null;
+        setFileProgress(0, 100);
+        setFileStatus(text || "Ready");
+    }
+
+    function cancelActiveTransfer(notifyPeer, text)
+    {
+        const transferId = activeTransferId();
+        if (notifyPeer && transferId)
+        {
+            sendCommand("fileCancel", [transferId, "cancelled"]);
+        }
+        clearActiveTransfer(text || "Cancelled");
+    }
+
+    function selectedFileLabel(file)
+    {
+        if (!file)
+        {
+            return "file.ready";
+        }
+        return safeDownloadName(file.name) + " selected";
+    }
+
+    function filePlainChunkSize(file)
+    {
+        const maxPlainChunk = Math.max(1, fileChunkBytes - FILE_E2EE_FRAME_OVERHEAD);
+        return Math.max(1, Math.min(maxPlainChunk, file.size));
+    }
+
+    function encryptedWireSize(fileSize, plainChunkSize)
+    {
+        const chunks = Math.ceil(fileSize / plainChunkSize);
+        return fileSize + chunks * FILE_E2EE_FRAME_OVERHEAD;
+    }
+
+    function updateSelectedFile()
+    {
+        if (!controlsAvailable())
+        {
+            return;
+        }
+        state.selectedFile = input.files && input.files.length > 0 ? input.files[0] : null;
+        if (!state.outgoing && !state.incoming && !state.pendingOffer)
+        {
+            setFileProgress(0, 100);
+            setFileStatus(selectedFileLabel(state.selectedFile));
+        }
+    }
+
+    async function sendNextChunk(transfer)
+    {
+        if (!state.outgoing || state.outgoing.id !== transfer.id)
+        {
+            return;
+        }
+        if (transfer.offset >= transfer.file.size)
+        {
+            sendCommand("fileDone", [transfer.id, String(transfer.totalChunks), String(transfer.wireSize)]);
+            setFileStatus("Finishing");
+            return;
+        }
+        const end = Math.min(transfer.offset + transfer.chunkSize, transfer.file.size);
+        const buffer = await readBlobAsArrayBuffer(transfer.file.slice(transfer.offset, end));
+        const encryptedBuffer = await encryptFileChunk(buffer, transfer.id, transfer.seq);
+        if (!state.outgoing || state.outgoing.id !== transfer.id)
+        {
+            return;
+        }
+        transfer.pendingPlainBytes = fileByteLength(buffer);
+        transfer.pendingBytes = fileByteLength(encryptedBuffer);
+        transfer.awaitingAck = true;
+        if (!sendCommand("fileChunk", [transfer.id, String(transfer.seq), String(transfer.pendingBytes)])
+            || !sendBinaryFrame(encryptedBuffer))
+        {
+            clearActiveTransfer("Connection lost");
+            return;
+        }
+        setFileStatus("Sending");
+    }
+
+    async function sendSelectedFile()
+    {
+        if (!controlsAvailable())
+        {
+            return;
+        }
+        clearDownload();
+        updateSelectedFile();
+        const file = state.selectedFile;
+        if (!file)
+        {
+            setFileStatus("Choose a file");
+            return;
+        }
+        if (file.size <= 0)
+        {
+            setFileStatus("Empty file");
+            return;
+        }
+        if (file.size > fileMaxBytes)
+        {
+            setFileStatus("File too large");
+            return;
+        }
+        if (document.body.dataset.wsState !== "connected")
+        {
+            setFileStatus("Peer offline");
+            return;
+        }
+        if (!textE2eeReady())
+        {
+            setFileStatus("Transfer failed");
+            return;
+        }
+        if (state.outgoing || state.incoming || state.pendingOffer)
+        {
+            setFileStatus("Transfer active");
+            return;
+        }
+        const chunkSize = filePlainChunkSize(file);
+        const wireSize = encryptedWireSize(file.size, chunkSize);
+        if (wireSize <= file.size)
+        {
+            setFileStatus("Transfer failed");
+            return;
+        }
+        const transfer = {
+            id: newTransferId(),
+            file,
+            chunkSize,
+            wireSize,
+            encryptedChunkSize: chunkSize + FILE_E2EE_FRAME_OVERHEAD,
+            totalChunks: Math.ceil(file.size / chunkSize),
+            offset: 0,
+            seq: 0,
+            pendingBytes: 0,
+            pendingPlainBytes: 0,
+            awaitingAck: false
+        };
+        state.outgoing = transfer;
+        setFileProgress(0, file.size);
+        setFileStatus("Waiting for peer");
+        const session = ensureTextE2eeSession(currentTextE2eePairId());
+        const offer = await session.signFileOffer([
+            transfer.id,
+            safeDownloadName(file.name),
+            String(file.size),
+            file.type || "application/octet-stream",
+            String(transfer.encryptedChunkSize),
+            String(wireSize),
+            "e2ee-v3"
+        ]);
+        if (state.outgoing === transfer && session === e2eeSession)
+            sendCommand("fileOffer", offer);
+    }
+
+    async function handleFileOffer(args)
     {
         if (!controlsAvailable())
         {
@@ -771,12 +526,12 @@ function arrayBufferCopy(data)
         const mime = args[3] || "application/octet-stream";
         const chunkSize = Number(args[4]);
         const wireSize = Number(args[5]);
-        if (state.outgoing || state.incoming)
+        if (state.outgoing || state.incoming || state.pendingOffer)
         {
             sendCommand("fileReject", [transferId, "busy"]);
             return;
         }
-        if (args[6] !== "e2ee-v1" || !textE2eeReady())
+        if (args[6] !== "e2ee-v3" || !textE2eeReady())
         {
             sendCommand("fileReject", [transferId, "encryption-required"]);
             setFileStatus("file.encryptionRequired");
@@ -787,6 +542,21 @@ function arrayBufferCopy(data)
             || !Number.isSafeInteger(wireSize) || wireSize <= size)
         {
             sendCommand("fileReject", [transferId, "invalid"]);
+            return;
+        }
+        const pending = { id: transferId };
+        state.pendingOffer = pending;
+        updateFileActionButtons();
+        const session = ensureTextE2eeSession(currentTextE2eePairId());
+        let verified = false;
+        try { verified = await session.verifyFileOffer(args); }
+        catch (error) {}
+        if (state.pendingOffer !== pending) return;
+        state.pendingOffer = null;
+        if (!verified || session !== e2eeSession || !textE2eeReady())
+        {
+            sendCommand("fileReject", [transferId, "encryption-required"]);
+            setFileStatus("file.encryptionRequired");
             return;
         }
         clearDownload();
@@ -808,9 +578,19 @@ function arrayBufferCopy(data)
         sendCommand("fileAccept", [transferId]);
     }
 
-// END exact source section: file-offer-acceptance
+    function handleFileAccept(args)
+    {
+        const transferId = args[0] || "";
+        if (!state.outgoing || state.outgoing.id !== transferId)
+        {
+            return;
+        }
+        sendNextChunk(state.outgoing).catch(function ()
+        {
+            cancelActiveTransfer(true, "Read failed");
+        });
+    }
 
-// BEGIN exact source section: file-frame-acceptance
     function handleFileChunk(args)
     {
         const transferId = args[0] || "";
@@ -871,9 +651,27 @@ function arrayBufferCopy(data)
         });
     }
 
-// END exact source section: file-frame-acceptance
+    function handleFileChunkAck(args)
+    {
+        const transferId = args[0] || "";
+        const seq = Number(args[1]);
+        const transfer = state.outgoing;
+        if (!transfer || transfer.id !== transferId || seq !== transfer.seq || !transfer.awaitingAck)
+        {
+            return;
+        }
+        transfer.offset += transfer.pendingPlainBytes;
+        transfer.seq += 1;
+        transfer.pendingBytes = 0;
+        transfer.pendingPlainBytes = 0;
+        transfer.awaitingAck = false;
+        setFileProgress(transfer.offset, transfer.file.size);
+        sendNextChunk(transfer).catch(function ()
+        {
+            cancelActiveTransfer(true, "Read failed");
+        });
+    }
 
-// BEGIN exact source section: file-completion
     function handleFileDone(args)
     {
         const transferId = args[0] || "";
@@ -893,4 +691,92 @@ function arrayBufferCopy(data)
         setFileStatus("Received");
     }
 
-// END exact source section: file-completion
+    function handleFileReceived(args)
+    {
+        const transferId = args[0] || "";
+        if (!state.outgoing || state.outgoing.id !== transferId)
+        {
+            return;
+        }
+        state.outgoing = null;
+        setFileProgress(100, 100);
+        setFileStatus("Sent");
+    }
+
+    function handleFileFinishedByPeer(text)
+    {
+        clearActiveTransfer(text);
+    }
+
+    function handleCommand(cmd, args)
+    {
+        switch (cmd)
+        {
+            case "fileOffer":
+                handleFileOffer(args);
+                return true;
+            case "fileAccept":
+                handleFileAccept(args);
+                return true;
+            case "fileChunk":
+                handleFileChunk(args);
+                return true;
+            case "fileChunkAck":
+                handleFileChunkAck(args);
+                return true;
+            case "fileDone":
+                handleFileDone(args);
+                return true;
+            case "fileReceived":
+                handleFileReceived(args);
+                return true;
+            case "fileReject":
+                handleFileFinishedByPeer("Rejected");
+                return true;
+            case "fileCancel":
+                handleFileFinishedByPeer("Cancelled");
+                return true;
+            case "fileError":
+                handleFileFinishedByPeer("Transfer failed");
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    function bind()
+    {
+        if (!controlsAvailable())
+        {
+            setFileProgress(0, 100);
+            setFileStatus(fileTransferRuntimeEnabled ? "Unavailable" : "Disabled");
+            return;
+        }
+        input.onchange = updateSelectedFile;
+        sendButton.onclick = function ()
+        {
+            sendSelectedFile().catch(function ()
+            {
+                cancelActiveTransfer(true, "Read failed");
+            });
+        };
+        cancelButton.onclick = function ()
+        {
+            cancelActiveTransfer(true, "Cancelled");
+        };
+        setFileProgress(0, 100);
+        setFileStatus(selectedFileLabel(state.selectedFile));
+    }
+
+    return {
+        bind,
+        handleCommand,
+        handleBinary,
+        cancelLocal: function (text)
+        {
+            clearActiveTransfer(text || "Ready");
+        }
+    };
+}
+
+// END exact source section: file-controller

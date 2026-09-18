@@ -1,66 +1,54 @@
-# IcyZip browser encryption review
+# IcyZip authenticated browser E2EE v3
 
-This repository makes the cryptographic parts of the current IcyZip browser client inspectable and reproducible. It contains exact excerpts from the JavaScript served by [icyzip.com](https://icyzip.com), a small adapter for isolated tests, the wire format, and an explicit threat model. The relay server implementation is outside this repository because encryption and decryption happen in the two browsers; every relay behavior that affects the cryptographic claim is described here.
+This repository makes the browser cryptography and security-relevant receive logic of IcyZip protocol v3 inspectable and reproducible. `src/e2ee.js` is byte-identical to the module consumed by production IcyZip. `src/snapshot.js` contains exact integration and file-receive sections. The proprietary relay is outside this repository; every relay-visible message and trust boundary relevant to E2EE is documented here.
 
-The current design has two confirmed limitations:
+This is review release `0.3.0` for the protocol introduced in IcyZip production/staging commit `edc7b8b80335bda8ff84589c7f4fac76c671f1f5`. It includes a minimal standalone test and focused attack regressions. The repository contains no proprietary server code.
 
-1. The relay forwards P-256 ECDH public keys without end-to-end authentication. An active or compromised relay can substitute keys, form one encrypted connection with each browser, and read or alter transferred content without a key-mismatch error.
-2. Text revision and origin fields are outside AES-GCM. A relay cannot change the encrypted text without detection, but it can change those fields and influence conflict resolution.
+## What v3 changes
 
-The tests under `test/limitations.test.mjs` reproduce both behaviors with synthetic endpoints. They are disclosure tests: a passing result confirms that the documented limitation is present. Do not interpret it as resistance to those attacks.
+- A new primary browser generates a random 32-byte pairing secret and places it only in the URL fragment: `#k=<base64url>&v=3`.
+- The secondary stores that secret in tab-scoped `sessionStorage` and removes the fragment from its visible URL. URI fragments are not part of the HTTP request.
+- The pairing secret authenticates each P-256 ECDH public key with HMAC-SHA-256 before the peer key is imported.
+- The ECDH result and pairing secret jointly derive separate keys for text, file chunks, and file-offer authentication.
+- Text envelope v2 encrypts the text, revision, and origin together.
+- Every visible file-offer field is authenticated before the receiver accepts a transfer.
+- Legacy key messages, text envelopes, file markers, malformed encodings, wrong roles, wrong pairs, altered offers, and unauthenticated ciphertext fail closed.
 
-Snapshot 0.2 closes the legacy file-offer downgrade disclosed by snapshot 0.1. The receiver now requires the exact `e2ee-v1` marker and an established ECDH content key before accepting an offer. `test/file-receive.test.mjs` keeps the old attack as a regression test and verifies encrypted recovery after rejection.
-
-## What the current client does
-
-- Generates one P-256 ECDH keypair per browser tab and pairing.
-- Stores the private JWK in tab-scoped `sessionStorage` for reload and reconnect recovery.
-- Exchanges uncompressed public points through the relay's `textPub` command.
-- Derives 256 shared ECDH bits, then uses HKDF-SHA-256 with the pairing id as salt.
-- Derives separate AES-256-GCM keys for text (`icyzip/text/ecdh/v2`) and file bytes (`icyzip/file/ecdh/v1`).
-- Encrypts text with a fresh random 96-bit nonce.
-- Encrypts each file chunk with a fresh random 96-bit nonce and authenticates pairing id, transfer id, and sequence as additional data.
-- Accepts a file offer only when it carries the exact `e2ee-v1` marker and an ECDH content key is established.
-- Rejects malformed offers, plaintext frames, incorrect keys, changed ciphertext, and changed file transfer or sequence context without creating a download.
-- Has no plaintext file-receive branch.
-
-The pairing URL contains a relay-visible pair id and no cryptographic secret. Filename, MIME hint, plaintext and ciphertext sizes, connection data, timing, and transfer-control messages remain visible to the service. See [PROTOCOL.md](PROTOCOL.md) and [THREAT-MODEL.md](THREAT-MODEL.md) for the exact boundaries.
+The complete pairing link is a secret capability. Anyone who obtains it can join that pair, so it must be kept private. The relay still sees the pair id, public keys and authentication tags, ciphertext sizes, timing, connection data, and file-offer metadata such as filename, MIME hint, sizes, and transfer identifiers. See [PROTOCOL.md](PROTOCOL.md) and [THREAT-MODEL.md](THREAT-MODEL.md) for the precise boundaries.
 
 ## Verify it
 
-Node.js 20 or newer is required. The tests use only Node's built-in modules and install no packages.
+Node.js 20 or newer is required. The tests use only built-in Node modules: no package installation, server, account, or network connection is needed.
 
 ```sh
+npm run test:minimal
 npm test
-npm run known-limitations
 ```
 
-`npm test` checks legitimate text and file exchange, independent ECDH/HKDF/AES-GCM interoperability, tamper rejection, downgrade rejection and recovery, key separation, reload recovery, random nonces, and snapshot provenance.
+Start with the 21-line [minimal test](test/minimal.test.mjs) and 33-line [endpoint adapter](test/endpoint.mjs). [TESTING.md](TESTING.md) explains how to add a small reproduction of a suspected weakness.
 
-When this repository is checked out inside the IcyZip source tree, compare the snapshot with the local browser client:
+The full suite covers authenticated key exchange, an independent Node cryptography oracle, key separation, exact bidirectional text and file recovery, hidden and authenticated text metadata, public-key substitution and reflection rejection, ciphertext and context tampering, file-offer field authentication, downgrade rejection, cancellation and retry, storage failure, reload recovery, and deterministic source provenance.
 
-```sh
-npm run check:local
-```
-
-Compare the same sections with the JavaScript currently served by IcyZip:
+Optionally compare the same files with the JavaScript currently served by IcyZip:
 
 ```sh
 npm run check:live
 ```
 
-The remote check permits only `https://icyzip.com/js/view/client_wsscript.js`, follows no redirects, sends the IcyZip test-traffic marker, and never writes a file.
+The live check permits only the two fixed `https://icyzip.com` browser assets, follows no redirects, marks its requests as test traffic, and writes no file. See [PROVENANCE.md](PROVENANCE.md) for its exact scope.
 
 ## Source layout
 
-- `src/snapshot.js`: nine verbatim source sections from the browser client, with section markers and an Apache-2.0 header.
+- `src/e2ee.js`: complete byte-identical protocol module used by production IcyZip.
+- `src/snapshot.js`: three exact integration and file-receive sections from the browser client.
 - `PROVENANCE.json`: SHA-256 hashes, source anchors, original line locations, and byte counts.
-- `tools/snapshot.mjs`: deterministic extractor and verifier.
-- `test/endpoint.mjs`: test-only application-state adapter; it implements no cryptography.
-- `test/crypto.test.mjs`: successful operation, negative ciphertext cases, and an independent Node crypto oracle.
-- `test/file-receive.test.mjs`: downgrade, malformed-offer, tamper, retry, and forward-progress regression tests.
-- `test/limitations.test.mjs`: executable disclosure of the two remaining protocol limitations.
+- `tools/snapshot.mjs`: deterministic exporter and verifier.
+- `test/endpoint.mjs`: test-only endpoint and storage adapter; it implements no cryptography.
+- `test/minimal.test.mjs`: small standalone text-exchange and tampering example.
+- `test/crypto.test.mjs`: protocol, tamper, recovery, and independent-oracle tests.
+- `test/file-receive.test.mjs`: downgrade, offer authentication, cancellation, tamper, retry, and exact-byte tests using the real receive controller.
+- `test/security-regressions.test.mjs`: expected rejection of the two active attacks disclosed by v0.2.
 
-This snapshot is review material for the deployed IcyZip protocol, not a general-purpose cryptography library. Please report security findings privately as described in [SECURITY.md](SECURITY.md).
+This code is review material for IcyZip's browser protocol, not a general-purpose cryptography library. Please report security findings privately as described in [SECURITY.md](SECURITY.md).
 
 Licensed under Apache License 2.0. Copyright 2026 Richard Andresik.

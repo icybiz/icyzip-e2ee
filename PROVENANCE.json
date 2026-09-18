@@ -1,81 +1,38 @@
 {
-  "format": 1,
+  "format": 2,
+  "module": {
+    "sourcePath": "client/src/js/e2ee.js",
+    "bytes": 14319,
+    "sha256": "d4572f2cbba9792274cef840ba4417aea66ca008302b8d031b90045fcfba8254"
+  },
   "sourcePath": "client/src/js/view/client_wsscript.js",
-  "sourceSha256": "3584b9ee5de5e29df3ee09380cb3aa8b655956b14cafed3509b9e82caec9bd7d",
-  "snapshotSha256": "b4535c8701e0217885ac67f7e7b0286c1016caa9bab81341474d820529e3e334",
-  "statement": "Section bodies are verbatim. The full application and relay are not included.",
+  "sourceSha256": "adbfc5177b2698550fabcfc66d89aa787149bfa3f37275f51891b3b16814a33a",
+  "snapshotSha256": "e488c8f43e708935ca448b623174bc838738d0b06c948523f588343cbd548dcf",
+  "statement": "The protocol module is byte-identical. Integration section bodies are verbatim. The full application and relay are not included.",
   "sections": [
     {
-      "name": "constants",
-      "startAnchor": "const TEXT_E2EE_STORAGE_PREFIX =",
-      "endAnchor": "const icyzipConfig =",
-      "firstLine": 41,
-      "bytes": 539,
-      "sha256": "32a8a92c373f23d2e7d7c561bc72ed7b6fe93e5608eda7713bf9ef9ea96e843f"
-    },
-    {
-      "name": "revision",
-      "startAnchor": "const TEXT_REVISION_BASE =",
-      "endAnchor": "const HTTP_FALLBACK_CONNECT_TIMEOUT_MS =",
-      "firstLine": 65,
-      "bytes": 45,
-      "sha256": "5d19e300afb7fec6ac1f8da105860e072a03af8f630cb435ffdd13fec6c4bfa2"
-    },
-    {
-      "name": "state",
-      "startAnchor": "let textE2eeSecret =",
-      "endAnchor": "let sentClientDiagnostics =",
-      "firstLine": 95,
-      "bytes": 272,
-      "sha256": "1e8af066ae46ab06942ffc1972662185c145f22fe1f2661931205d8b0479f31d"
-    },
-    {
-      "name": "revision-validation",
-      "startAnchor": "function normalizedTextUpdatedAt(value)",
-      "endAnchor": "function nextTextRevision(value)",
-      "firstLine": 214,
-      "bytes": 147,
-      "sha256": "8a3ff58776f97bfca556dab81a7e8e1b31e773e57da31f82172d33fb823711da"
-    },
-    {
-      "name": "cryptography-and-lifecycle",
-      "startAnchor": "function bytesToBase64Url(bytes)",
+      "name": "module-integration",
+      "startAnchor": "function textE2eeSupported()",
       "endAnchor": "function readStoredPair(storage, key)",
-      "firstLine": 1089,
-      "bytes": 17096,
-      "sha256": "b6bdf8fe16118f9d1c7c930757ba6139ed313fb0403dcceb5fbd4d101f0cc663"
+      "firstLine": 1076,
+      "bytes": 5297,
+      "sha256": "f1cdccab47b801886d5e3ba6248dfe6835947957569bef14f126a1b3ee24bb9e"
     },
     {
-      "name": "buffer-copy",
+      "name": "file-buffers",
       "startAnchor": "function fileByteLength(data)",
-      "endAnchor": "function isBinaryMessageData(data)",
-      "firstLine": 2769,
-      "bytes": 486,
-      "sha256": "f286ddf8c8e291eb09fc4198d510183054f5f6d672b15da50e108ffbe0c6a38c"
+      "endAnchor": "function scheduleReconnect(delay)",
+      "firstLine": 2267,
+      "bytes": 1164,
+      "sha256": "7b2c66d52faf07dc131292acf3ae4e5227dc9b3765e3f13f31e1f2b8560f7e64"
     },
     {
-      "name": "file-offer-acceptance",
-      "startAnchor": "    function handleFileOffer(args)",
-      "endAnchor": "    function handleFileAccept(args)",
-      "firstLine": 4038,
-      "bytes": 1668,
-      "sha256": "f857aa98df57fa2f3cb47b41eedbc43e7af84edcfd29d639bd93767f247cad35"
-    },
-    {
-      "name": "file-frame-acceptance",
-      "startAnchor": "    function handleFileChunk(args)",
-      "endAnchor": "    function handleFileChunkAck(args)",
-      "firstLine": 4101,
-      "bytes": 2146,
-      "sha256": "574773692531519078e8f51e2b704c8c1c2476a68688b9ce723c1784b822b7df"
-    },
-    {
-      "name": "file-completion",
-      "startAnchor": "    function handleFileDone(args)",
-      "endAnchor": "    function handleFileReceived(args)",
-      "firstLine": 4182,
-      "bytes": 806,
-      "sha256": "cfa5f19caabb6e64db75a7135d2206df0111c3c6c41a389d8f9d53206ad262af"
+      "name": "file-controller",
+      "startAnchor": "function createFileTransferController()",
+      "endAnchor": "function setupWsServer()",
+      "firstLine": 3275,
+      "bytes": 16730,
+      "sha256": "63b56c88eefcbbac44d0ff23038242b4a1fa310fd7ca21fb29efb15d45d69ebf"
     }
   ]
 }

@@ -1,15 +1,15 @@
 {
   "name": "icyzip-e2ee-review",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Review snapshot of IcyZip browser cryptography; see the documented authentication limitations.",
+  "description": "Reviewable IcyZip authenticated browser E2EE protocol v3 and standalone tests.",
   "type": "module",
   "license": "Apache-2.0",
   "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node --test test/crypto.test.mjs test/file-receive.test.mjs test/provenance.test.mjs",
-    "known-limitations": "node --test test/limitations.test.mjs",
-    "check:local": "node tools/snapshot.mjs --source ../client/src/js/view/client_wsscript.js --check",
+    "test": "node --test test/minimal.test.mjs test/crypto.test.mjs test/file-receive.test.mjs test/security-regressions.test.mjs test/provenance.test.mjs",
+    "test:minimal": "node --test test/minimal.test.mjs",
+    "security-regressions": "node --test test/security-regressions.test.mjs",
     "check:live": "node tools/snapshot.mjs --url https://icyzip.com/js/view/client_wsscript.js --check"
   }
 }

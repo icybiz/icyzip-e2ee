@@ -1,103 +1,123 @@
-# Current IcyZip browser encryption protocol
+# IcyZip authenticated browser encryption protocol v3
 
-This document describes the browser client represented by `src/snapshot.js`. It is descriptive, not a proposal for a future protocol.
+This document describes the browser protocol represented by `src/e2ee.js` and `src/snapshot.js`, deployed to IcyZip production and staging at `edc7b8b80335bda8ff84589c7f4fac76c671f1f5`. The deterministic live correspondence check matches these review files to the production assets served at the time of verification.
 
-## Participants and transport
+## Participants, pairing link, and transport
 
-One primary browser obtains a pairing id and a separate resume capability from the relay. Its QR code and copied link contain only:
+The relay gives the primary browser a random pairing id and a separate resume capability. The primary browser independently generates 32 random bytes with WebCrypto and encodes them as unpadded base64url. The QR code and copied link have this shape:
 
 ```text
-https://icyzip.com/?i=<pair-id>
+https://icyzip.com/?i=<pair-id>#k=<43-character-secret>&v=3
 ```
 
-The second browser sends the pair id to the relay. Once both are connected, they exchange JSON commands over WebSocket or the same-origin HTTP fallback. TLS protects both transports in production. The two transports carry the same encrypted text format. File transfer requires WebSocket binary frames.
+The query pair id is sent to the service and routes messages. The fragment is not part of HTTP requests. The secondary strictly validates the fragment, stores the secret under the pair id in tab-scoped `sessionStorage`, and removes the fragment with `history.replaceState` before connecting. The primary stores the same secret in its own tab session.
 
-The pair id routes messages; it is not a cryptographic key. The resume capability lets the primary browser resume server-side pairing state; it is also not input to browser encryption.
+The complete link is a secret capability: anyone who obtains it can authenticate a browser as a participant in that pair. A secondary with a missing, malformed, or wrong secret cannot complete authenticated key establishment. A primary reload without its stored v3 secret preserves its text draft but replaces the obsolete pair with a fresh id and secret.
 
-## ECDH exchange
+JSON commands use WebSocket or the same-origin text-only HTTP fallback. TLS protects both transports in production. File chunks require WebSocket binary frames.
 
-Each browser creates an extractable P-256 ECDH keypair through WebCrypto and exports:
+## Authenticated P-256 ECDH
 
-- the private key as a JWK stored under a pair-specific key in that tab's `sessionStorage`;
-- the public key as the 65-byte uncompressed point `0x04 || X || Y`, encoded as unpadded base64url.
+Each browser creates an extractable P-256 ECDH keypair. Its private JWK and 65-byte uncompressed public point are stored together under a pair-specific `sessionStorage` key for reload continuity. Private keys do not cross the relay.
 
-Each side sends:
+First derive a non-extractable HMAC-SHA-256 key:
+
+```text
+pubAuthKey = HKDF-SHA-256(
+  ikm=pairingSecret,
+  salt=UTF8(pairId),
+  info=UTF8("icyzip/e2ee/pub-auth/v3"),
+  length=32
+)
+```
+
+Each endpoint sends this `textPub` payload after the relay routing id:
 
 ```json
-{"cmd":"textPub","args":["<relay-routing-id>","<base64url-public-point>"]}
+["v3", "<65-byte-public-point-as-base64url>", "<32-byte-HMAC-as-base64url>"]
 ```
 
-The relay forwards the public point to the other browser. The recipient checks only the encoding, 65-byte length, uncompressed-point prefix, and P-256 import validity. No signature, MAC, certificate, pairing secret, fingerprint comparison, or short authentication string authenticates the point.
-
-The recipient calculates:
-
-```text
-shared = P-256-ECDH(own-private-key, received-public-key)  // 32 bytes
-```
-
-On reconnect, the in-memory shared value is cleared and rederived after another public-key exchange. It is not persisted. The private JWK remains in `sessionStorage` until the pairing is cleared or the tab session ends.
-
-## Key derivation
-
-The raw 32-byte ECDH result is imported as HKDF input key material. Both application keys use SHA-256 and the UTF-8 pair id as salt:
-
-```text
-textKey = HKDF-SHA-256(shared, salt=UTF8(pairId), info=UTF8("icyzip/text/ecdh/v2"), 32)
-fileKey = HKDF-SHA-256(shared, salt=UTF8(pairId), info=UTF8("icyzip/file/ecdh/v1"), 32)
-```
-
-Both outputs are non-extractable AES-GCM keys. The different `info` values provide key separation.
-
-## Text messages
-
-For each update the sender generates a fresh random 12-byte nonce and encrypts the UTF-8 text with AES-256-GCM. No additional authenticated data is supplied. The JSON envelope is:
+The HMAC input is UTF-8 JSON without added whitespace:
 
 ```json
-{
-  "v": 1,
-  "alg": "A256GCM",
-  "n": "<12-byte nonce as base64url>",
-  "c": "<ciphertext and 16-byte GCM tag as base64url>",
-  "t": 4503599627370497,
-  "o": "<browser-origin-id>"
-}
+["icyzip/e2ee/pub/v3", "<pair-id>", "<sender-role>", "<public-point>"]
 ```
 
-`t` is a positive safe-integer Lamport-style revision. `o` is the browser's random conflict-resolution origin. These two fields are read after ciphertext verification but are not themselves encrypted or authenticated. A changed `n` or `c` fails AES-GCM verification. A changed `t` or `o` does not.
+The sender role is exactly `primary` or `secondary`. The receiver verifies the version, canonical unpadded base64url, public-point length and `0x04` prefix, HMAC length, and HMAC before importing the peer point. Role reflection, pair substitution, public-key substitution, altered tags, malformed encodings, and old formats fail before content keys are derived. WebCrypto also rejects points that are not on P-256.
 
-The encrypted envelope is the text argument of `tcha` from primary to secondary or `tch` from secondary to primary. The relay forwards it unchanged in ordinary operation.
-
-## File chunks
-
-Text and file transfer share the ECDH result but use distinct HKDF contexts. For every plaintext chunk, the sender generates a fresh 12-byte nonce and constructs UTF-8 additional authenticated data:
+After authentication, each side derives 32 ECDH bytes. Key input and transcript salt are:
 
 ```text
-icyzip/file/chunk/v1\n<pair-id>\n<transfer-id>\n<decimal-sequence>
+material = ecdhSharedBits || pairingSecret
+transcript = UTF8(JSON(["v3", pairId, primaryPublic, secondaryPublic]))
+salt = SHA-256(transcript)
 ```
 
-The sender encrypts the chunk with AES-256-GCM and transmits this binary frame:
+Four independent keys exist:
+
+```text
+textKey      = HKDF-SHA-256(material, salt, "icyzip/e2ee/text/v3", 32)
+fileChunkKey = HKDF-SHA-256(material, salt, "icyzip/e2ee/file-chunk/v3", 32)
+fileOfferKey = HKDF-SHA-256(material, salt, "icyzip/e2ee/file-offer/v3", 32)
+pubAuthKey   = HKDF-SHA-256(pairingSecret, UTF8(pairId), "icyzip/e2ee/pub-auth/v3", 32)
+```
+
+The first two are non-extractable AES-256-GCM keys. The latter two are non-extractable HMAC-SHA-256 keys.
+
+## Text envelope v2
+
+The authenticated plaintext is compact UTF-8 JSON:
+
+```json
+{"text":"<text>","t":4503599627370497,"o":"<origin>"}
+```
+
+`t` must be a non-negative safe integer. `o` must be a non-empty string of at most 128 characters. A fresh random 12-byte nonce is used for each update. AES-GCM additional authenticated data is compact UTF-8 JSON:
+
+```json
+["icyzip/text/v2", "<pair-id>"]
+```
+
+The relay-visible envelope has exactly four fields:
+
+```json
+{"v":2,"alg":"A256GCM","n":"<nonce-base64url>","c":"<ciphertext-and-tag-base64url>"}
+```
+
+Text, revision, and origin are encrypted and authenticated together. An old v1 envelope, extra or missing fields, wrong pair context, malformed nonce or ciphertext, invalid decrypted field, wrong key, or failed GCM tag rejects the update while the application retains the last valid text.
+
+## File chunks and offers
+
+Every plaintext file chunk gets a fresh 12-byte nonce. Its AES-GCM additional authenticated data is:
+
+```json
+["icyzip/file/chunk/v3", "<pair-id>", "<transfer-id>", <sequence>]
+```
+
+The binary frame is:
 
 ```text
 12-byte nonce || ciphertext || 16-byte GCM tag
 ```
 
-The recipient reconstructs the same additional data. Any change to encrypted bytes, nonce, pair id, transfer id, or sequence causes decryption to fail.
+The seven visible offer fields are strings in this order:
 
-The file offer and control commands stay outside this encryption. The relay and peer see the transfer id, sanitized filename, MIME hint, plaintext size, encrypted wire size, chunk size, encryption-mode marker, timing, accept/reject/cancel state, acknowledgements, and completion counts. Those offer fields are not covered by an end-to-end MAC in this version.
+```json
+["<transfer-id>","<filename>","<plain-size>","<MIME-hint>","<encrypted-chunk-size>","<wire-size>","e2ee-v3"]
+```
 
-The sender appends encrypted wire size and the exact marker `e2ee-v1` to every offer. Before accepting, the receiver requires that marker and an established ECDH content key. It also requires positive safe-integer plaintext size, encrypted chunk size, and wire size; enforces the configured size limits; requires the encrypted chunk size to exceed the 28-byte nonce/tag overhead; and requires wire size to exceed plaintext size. An older five-field offer, a changed marker, or an offer received before key establishment is rejected with `encryption-required`. There is no plaintext receive branch.
+The sender appends an HMAC-SHA-256 tag over compact UTF-8 JSON:
 
-The marker and visible size fields are still not authenticated end to end. An active relay can change them and cause rejection or denial of service. It cannot make the current receiver accept plaintext file frames: every accepted frame is passed through AES-GCM with the pair, transfer, and sequence context before any bytes enter the file assembler.
+```json
+["icyzip/file/offer/v3", "<pair-id>", "<sender-role>", ["<the-seven-fields>"]]
+```
 
-## Failure behavior
+The receiver validates operational sizes and verifies the tag before accepting. Changing the transfer id, name, MIME hint, plaintext size, chunk size, wire size, mode, sender role, or tag causes rejection. A missing key, old marker, unsigned offer, malformed frame, changed transfer or sequence context, wrong key, or failed GCM tag cannot create a download. Cancellation or failure clears transfer state so a later valid transfer can proceed.
 
-- Invalid public-key encoding or an invalid curve point stops key establishment.
-- Text cannot be sent until a shared value exists.
-- Invalid JSON, algorithm/version, nonce length, ciphertext, GCM tag, or key rejects the text update; the application keeps the last valid text and shows a key-mismatch state.
-- An offer without exact `e2ee-v1` or without an established ECDH key is rejected before transfer state is created.
-- Invalid offer sizes are rejected. Invalid file frames, changed file context, or failed GCM verification cancel an accepted transfer instead of creating a partial download.
-- Neither text nor file receive has a plaintext fallback.
+Filename, MIME hint, sizes, transfer id, timing, acknowledgement and completion state remain visible to the relay. Authentication prevents undetected changes; it does not conceal them.
 
-## Relay role relevant to E2EE
+## Relay behavior relevant to E2EE
 
-The relay chooses pairing identifiers, connects one primary and one secondary, forwards public keys, text envelopes, file offers and file frames, enforces operational size/state limits, and serves the browser JavaScript. It does not need a content-decryption key during ordinary honest operation. Because public keys are unauthenticated, an active relay can create separate ECDH relationships with the two browsers; the executable reproduction is in `test/limitations.test.mjs`.
+The relay creates cryptographically random pair, resume, and fallback identifiers; connects one primary and one secondary; validates v3 message framing; forwards public-key messages and file-offer fields byte for byte; forwards opaque text ciphertext and encrypted binary frames; and enforces operational state and size limits. It does not receive the pairing secret, private ECDH keys, shared ECDH result, or derived content keys during operation with the authentic client.
+
+The relay can still delay, drop, duplicate, reject, disconnect, or reorder allowed traffic. These actions can deny service but cannot create a valid public-key tag, text ciphertext, file chunk, or file offer without the relevant browser-held key.
