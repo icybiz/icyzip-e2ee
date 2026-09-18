@@ -1,0 +1,81 @@
+{
+  "format": 1,
+  "sourcePath": "client/src/js/view/client_wsscript.js",
+  "sourceSha256": "43887778361ea221136681984820c6ffcfcdf9cee621df08225a29cbf8004ad9",
+  "snapshotSha256": "dc5197904481545512eb3f1e995fc626189672647a251105cd1a4fe9b213341f",
+  "statement": "Section bodies are verbatim. The full application and relay are not included.",
+  "sections": [
+    {
+      "name": "constants",
+      "startAnchor": "const TEXT_E2EE_STORAGE_PREFIX =",
+      "endAnchor": "const icyzipConfig =",
+      "firstLine": 41,
+      "bytes": 539,
+      "sha256": "32a8a92c373f23d2e7d7c561bc72ed7b6fe93e5608eda7713bf9ef9ea96e843f"
+    },
+    {
+      "name": "revision",
+      "startAnchor": "const TEXT_REVISION_BASE =",
+      "endAnchor": "const HTTP_FALLBACK_CONNECT_TIMEOUT_MS =",
+      "firstLine": 65,
+      "bytes": 45,
+      "sha256": "5d19e300afb7fec6ac1f8da105860e072a03af8f630cb435ffdd13fec6c4bfa2"
+    },
+    {
+      "name": "state",
+      "startAnchor": "let textE2eeSecret =",
+      "endAnchor": "let sentClientDiagnostics =",
+      "firstLine": 95,
+      "bytes": 272,
+      "sha256": "1e8af066ae46ab06942ffc1972662185c145f22fe1f2661931205d8b0479f31d"
+    },
+    {
+      "name": "revision-validation",
+      "startAnchor": "function normalizedTextUpdatedAt(value)",
+      "endAnchor": "function nextTextRevision(value)",
+      "firstLine": 213,
+      "bytes": 147,
+      "sha256": "8a3ff58776f97bfca556dab81a7e8e1b31e773e57da31f82172d33fb823711da"
+    },
+    {
+      "name": "cryptography-and-lifecycle",
+      "startAnchor": "function bytesToBase64Url(bytes)",
+      "endAnchor": "function readStoredPair(storage, key)",
+      "firstLine": 1066,
+      "bytes": 17096,
+      "sha256": "b6bdf8fe16118f9d1c7c930757ba6139ed313fb0403dcceb5fbd4d101f0cc663"
+    },
+    {
+      "name": "buffer-copy",
+      "startAnchor": "function fileByteLength(data)",
+      "endAnchor": "function isBinaryMessageData(data)",
+      "firstLine": 2741,
+      "bytes": 486,
+      "sha256": "f286ddf8c8e291eb09fc4198d510183054f5f6d672b15da50e108ffbe0c6a38c"
+    },
+    {
+      "name": "file-offer-acceptance",
+      "startAnchor": "    function handleFileOffer(args)",
+      "endAnchor": "    function handleFileAccept(args)",
+      "firstLine": 4010,
+      "bytes": 1677,
+      "sha256": "fcef7c6ae996902d7fcfacc58bc9a113a23c129526a52b0d620ac6a9c750ccef"
+    },
+    {
+      "name": "file-frame-acceptance",
+      "startAnchor": "    function handleFileChunk(args)",
+      "endAnchor": "    function handleFileChunkAck(args)",
+      "firstLine": 4074,
+      "bytes": 2279,
+      "sha256": "9ade272760c2a4151d009d0a09d51d69c26962f6ec65f23563564b4bd5308841"
+    },
+    {
+      "name": "file-completion",
+      "startAnchor": "    function handleFileDone(args)",
+      "endAnchor": "    function handleFileReceived(args)",
+      "firstLine": 4158,
+      "bytes": 806,
+      "sha256": "cfa5f19caabb6e64db75a7135d2206df0111c3c6c41a389d8f9d53206ad262af"
+    }
+  ]
+}
