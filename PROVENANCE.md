@@ -9,7 +9,7 @@
 - the SHA-256 of the complete integration snapshot;
 - every section's unique start/end anchors, original first line, byte count, and SHA-256.
 
-`tools/snapshot.mjs` requires both local source files, locates every integration boundary exactly once, and rejects missing or ambiguous anchors. Check mode regenerates everything in memory and compares the full module bytes, snapshot bytes, and complete provenance object. Patch mode emits an `apply_patch` diff and does not write project files itself.
+`tools/snapshot.mjs` requires both local source files, locates every integration boundary exactly once, and rejects missing or ambiguous anchors. Check mode regenerates everything in memory and requires an exact match for the complete module, all three integration-section bodies, their boundaries, byte counts and hashes, and the snapshot. It also reports whether the complete browser source hash and the sections' original line locations match the extraction release. Those two informational fields may change when unrelated application code changes. Patch mode emits an `apply_patch` diff and does not write project files itself.
 
 To compare two locally saved browser source files, supply their explicit paths:
 
@@ -23,7 +23,7 @@ The live check fetches only `https://icyzip.com/js/view/client_wsscript.js` and 
 npm run check:live
 ```
 
-A successful live check proves that the complete protocol module and the three recorded integration sections matched this review release at the time of the requests. It does not prove that unrelated application code matched, that every visitor received the same response, that the origin cannot later change code, or that no defect exists.
+A successful live check proves that the complete protocol module and the three recorded integration sections matched this review release at the time of the requests. `fullSourceMatchesRecordedFile` and `integrationLocationsMatchRecordedFile` state whether the surrounding browser file and original line locations also remained unchanged; `false` does not weaken an exact match of the reviewed bytes. The check does not prove that unrelated application code is trustworthy, that every visitor received the same response, that the origin cannot later change code, or that no defect exists.
 
 The test adapter supplies endpoint role, pair id, tab storage, and WebCrypto. It implements no cryptographic primitive or key derivation. `test/crypto.test.mjs` independently verifies the protocol through Node's separate ECDH, HKDF, HMAC, and AES-GCM APIs.
 

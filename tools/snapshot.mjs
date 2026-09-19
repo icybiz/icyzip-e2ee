@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const ranges = [
@@ -63,6 +64,32 @@ export function extract(source, moduleSource)
             statement: "The protocol module is byte-identical. Integration section bodies are verbatim. The full application and relay are not included.",
             sections: sections.map(function ({ code, ...part }) { return part; })
         }
+    };
+}
+
+export function verifySource(generated, expected, expectedModule, recorded)
+{
+    // Full-file hashes and line numbers identify the extraction release, but
+    // unrelated UI edits can change them without changing the reviewed bytes.
+    function reviewProvenance({ sourceSha256, sections, ...provenance })
+    {
+        return {
+            ...provenance,
+            sections: sections.map(function ({ firstLine, ...section }) { return section; })
+        };
+    }
+    if (sha256(expected) !== recorded.snapshotSha256 || generated.snapshot !== expected
+        || generated.moduleSource !== expectedModule || sha256(expectedModule) !== recorded.module.sha256
+        || !isDeepStrictEqual(reviewProvenance(generated.provenance), reviewProvenance(recorded)))
+    {
+        throw new Error("E2EE snapshot differs from the supplied application source or provenance.");
+    }
+    return {
+        fullSourceMatchesRecordedFile: generated.provenance.sourceSha256 === recorded.sourceSha256,
+        integrationLocationsMatchRecordedFile: generated.provenance.sections.every(function (section, index)
+        {
+            return section.firstLine === recorded.sections[index].firstLine;
+        })
     };
 }
 
@@ -150,19 +177,14 @@ async function main(args)
     const expected = await readFile(resolve(root, "src/snapshot.js"), "utf8");
     const expectedModule = await readFile(resolve(root, "src/e2ee.js"), "utf8");
     const recorded = JSON.parse(await readFile(resolve(root, "PROVENANCE.json"), "utf8"));
-    if (sha256(expected) !== recorded.snapshotSha256 || generated.snapshot !== expected
-        || generated.moduleSource !== expectedModule || sha256(expectedModule) !== recorded.module.sha256
-        || JSON.stringify(generated.provenance) !== JSON.stringify(recorded))
-    {
-        throw new Error("E2EE snapshot differs from the supplied application source or provenance.");
-    }
+    const correspondence = verifySource(generated, expected, expectedModule, recorded);
     console.log(JSON.stringify({
         result: "exact-e2ee-module-and-integration-match",
         source: sourceUrl ? "public-asset" : "local-file",
         sections: generated.provenance.sections.length,
         snapshotSha256: recorded.snapshotSha256,
         moduleSha256: recorded.module.sha256,
-        fullSourceMatchesRecordedFile: generated.provenance.sourceSha256 === recorded.sourceSha256
+        ...correspondence
     }));
 }
 

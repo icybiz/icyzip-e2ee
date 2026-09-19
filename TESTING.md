@@ -23,6 +23,6 @@ For examples beyond the starter, see:
 - [`file-receive.test.mjs`](test/file-receive.test.mjs): the actual browser receive controller with a small UI/transport adapter; altered offers, downgrade attempts, cancellation, retry, and exact file bytes.
 - [`security-regressions.test.mjs`](test/security-regressions.test.mjs): previously identified relay-substitution and text-metadata attacks.
 
-`npm test` also checks the recorded source hashes. Separately, `npm run check:live` downloads the two public IcyZip JavaScript assets to compare their bytes with this repository; this optional check requires network access. See [PROVENANCE.md](PROVENANCE.md).
+`npm test` also checks the recorded source hashes and proves that unrelated surrounding-code edits are tolerated while changes to the reviewed module, integration sections or their provenance are rejected. Separately, `npm run check:live` downloads the two public IcyZip JavaScript assets to compare the reviewed bytes with this repository; this optional check requires network access. It reports full-file and line-location drift separately because ordinary application edits can move unchanged reviewed code. See [PROVENANCE.md](PROVENANCE.md).
 
 Read [PROTOCOL.md](PROTOCOL.md) and [THREAT-MODEL.md](THREAT-MODEL.md) when assessing an attack. Report security-sensitive findings privately through [SECURITY.md](SECURITY.md); include a minimal synthetic reproduction, not real users' content, keys, or pairing links.
